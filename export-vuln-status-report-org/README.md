@@ -8,6 +8,8 @@ The result of the script will be a json like this:
 {
     "date": "2025-10-31",
     "org_id": "65523c0b-3a89-4f55-a819-11c497a7c0d3",
+    "from_date": "2025-01-01T00:00:00Z",
+    "to_date": "2025-12-31T23:59:59Z",
     "report": {
         "critical": {
             "total": 1018,
@@ -51,8 +53,8 @@ export SNYK_TOKEN=my-snyk-token
 Run with your org id:
 
 ```sh
-go run main.go $my-org-id
+go run main.go MY_ORG_ID DATE_FROM DATE_TO 
 
 # example
-go run main.go 65523c0b-3a89-4f55-a819-11c497a7c0d3
+go run main.go 65523c0b-3a89-4f55-a819-11c497a7c0d3 2025-01-01 2025-12-31
 ```

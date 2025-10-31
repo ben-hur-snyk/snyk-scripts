@@ -30,7 +30,6 @@ type ExportRequest struct {
 	} `json:"data"`
 }
 
-// ExportResponse represents the response from creating an export
 type ExportResponse struct {
 	Data struct {
 		Attributes struct {
@@ -41,7 +40,6 @@ type ExportResponse struct {
 	} `json:"data"`
 }
 
-// ExportStatusResponse represents the response from checking export status
 type ExportStatusResponse struct {
 	Data struct {
 		Attributes struct {
@@ -54,14 +52,12 @@ type ExportStatusResponse struct {
 	} `json:"data"`
 }
 
-// ExportResult represents a single CSV file in the export results
 type ExportResult struct {
 	URL      string `json:"url"`
 	FileSize int    `json:"file_size"`
 	RowCount int    `json:"row_count"`
 }
 
-// ExportDownloadResponse represents the response from downloading export
 type ExportDownloadResponse struct {
 	Data struct {
 		Attributes struct {
@@ -80,13 +76,14 @@ type ExportDownloadResponse struct {
 	} `json:"data"`
 }
 
-// CSVRecord represents a single row from the CSV file
 type CSVRecord map[string]string
 
 type Report struct {
-	Date   string       `json:"date"`
-	OrgID  string       `json:"org_id,omitempty"`
-	Report ReportDetail `json:"report"`
+	Date     string       `json:"date"`
+	OrgID    string       `json:"org_id,omitempty"`
+	FromDate string       `json:"from_date,omitempty"`
+	ToDate   string       `json:"to_date,omitempty"`
+	Report   ReportDetail `json:"report"`
 }
 
 type ReportDetail struct {
@@ -109,13 +106,14 @@ type Config struct {
 	SnykAPIKey     string
 	APIVersion     string
 	ExportID       string
+
+	FromDate string
+	ToDate   string
 }
 
 func main() {
-	// Get from arg or default
 	config := getConfig()
 
-	// Step 1: Create export
 	fmt.Println("Creating export...")
 	exportID, err := createExport(config)
 	config.ExportID = exportID
@@ -125,7 +123,6 @@ func main() {
 	fmt.Printf("Export created with ID: %s\n", exportID)
 	time.Sleep(5 * time.Second) // delay due to job creation
 
-	// Step 2: Check export status until ready
 	fmt.Println("Waiting for export to be ready...")
 	err = checkExportStatus(config)
 	if err != nil {
@@ -133,7 +130,6 @@ func main() {
 	}
 	fmt.Println("Export is ready!")
 
-	// Step 3: Download export metadata
 	fmt.Println("Downloading export metadata...")
 	exportData, err := downloadExport(config)
 	if err != nil {
@@ -144,7 +140,6 @@ func main() {
 		len(exportData.Data.Attributes.Results),
 		exportData.Data.Attributes.RowCount)
 
-	// Step 4: Download and process all CSV files
 	fmt.Println("Downloading and processing CSV files...")
 	var allRecords []CSVRecord
 
@@ -157,6 +152,8 @@ func main() {
 	}
 	result.Date = time.Now().Format("2006-01-02")
 	result.OrgID = config.SnykOrgID
+	result.FromDate = config.FromDate
+	result.ToDate = config.ToDate
 
 	for i, exportResult := range exportData.Data.Attributes.Results {
 		fmt.Printf("Downloading CSV file %d/%d (rows: %d, size: %d bytes)...\n",
@@ -223,6 +220,29 @@ func getConfig() Config {
 		os.Exit(1)
 	}
 
+	var dateFrom, dateTo string
+	if len(os.Args) > 2 && os.Args[2] != "" {
+		dateFrom = os.Args[2]
+		// Validate YYYY-MM-DD
+		if _, err := time.Parse("2006-01-02", dateFrom); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: DateFrom ('%s') is not a valid YYYY-MM-DD date\n", dateFrom)
+			os.Exit(1)
+		}
+	} else {
+		fmt.Fprintln(os.Stderr, "Error: DateFrom (YYYY-MM-DD) is required as argument 2")
+		os.Exit(1)
+	}
+	if len(os.Args) > 3 && os.Args[3] != "" {
+		dateTo = os.Args[3]
+		if _, err := time.Parse("2006-01-02", dateTo); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: DateTo ('%s') is not a valid YYYY-MM-DD date\n", dateTo)
+			os.Exit(1)
+		}
+	} else {
+		fmt.Fprintln(os.Stderr, "Error: DateTo (YYYY-MM-DD) is required as argument 3")
+		os.Exit(1)
+	}
+
 	snykAPIKey = os.Getenv("SNYK_TOKEN")
 	if snykAPIKey == "" {
 		fmt.Fprintln(os.Stderr, "Error: SNYK_TOKEN environment variable is not set")
@@ -235,6 +255,8 @@ func getConfig() Config {
 		SnykAPIKey:     snykAPIKey,
 		APIVersion:     "2024-10-15",
 		ExportID:       "",
+		FromDate:       fmt.Sprintf("%sT00:00:00Z", dateFrom),
+		ToDate:         fmt.Sprintf("%sT23:59:59Z", dateTo),
 	}
 }
 
@@ -268,8 +290,8 @@ func createExport(config Config) (string, error) {
 		"ISSUE_STATUS",
 	}
 	reqBody.Data.Attributes.Dataset = "issues"
-	reqBody.Data.Attributes.Filters.Introduced.From = "2025-01-01T00:00:00Z"
-	reqBody.Data.Attributes.Filters.Introduced.To = "2025-12-31T00:00:00Z"
+	reqBody.Data.Attributes.Filters.Introduced.From = config.FromDate
+	reqBody.Data.Attributes.Filters.Introduced.To = config.ToDate
 	reqBody.Data.Attributes.Formats = []string{"csv"}
 
 	jsonData, err := json.Marshal(reqBody)
@@ -314,7 +336,6 @@ func createExport(config Config) (string, error) {
 	return exportResp.Data.ID, nil
 }
 
-// checkExportStatus polls the export status until it's ready
 func checkExportStatus(config Config) error {
 	url := fmt.Sprintf("%s/rest/orgs/%s/jobs/export/%s?version=%s", config.SnykAPIBaseURL, config.SnykOrgID, config.ExportID, config.APIVersion)
 
@@ -360,12 +381,10 @@ func checkExportStatus(config Config) error {
 			continue
 		}
 
-		// Any other status (like ERROR) should stop
 		return fmt.Errorf("export status is %s", status)
 	}
 }
 
-// downloadExport gets the export results with CSV URLs
 func downloadExport(config Config) (*ExportDownloadResponse, error) {
 	url := fmt.Sprintf("%s/rest/orgs/%s/export/%s?version=%s", config.SnykAPIBaseURL, config.SnykOrgID, config.ExportID, config.APIVersion)
 
@@ -402,7 +421,6 @@ func downloadExport(config Config) (*ExportDownloadResponse, error) {
 	return &downloadResp, nil
 }
 
-// downloadCSVFile downloads a single CSV file from a URL
 func downloadCSVFile(url string, filename string) ([]byte, error) {
 	res, err := http.Get(url)
 	if err != nil {
@@ -428,16 +446,14 @@ func downloadCSVFile(url string, filename string) ([]byte, error) {
 
 	filePath := filepath.Join(dir, filename)
 
-	_ = os.WriteFile(filePath, data, 0644) // Ignore write error in production code
+	_ = os.WriteFile(filePath, data, 0644)
 
 	return data, nil
 }
 
-// processCSV parses CSV data and returns an array of records
 func processCSV(csvData []byte) ([]CSVRecord, error) {
 	reader := csv.NewReader(bytes.NewReader(csvData))
 
-	// Read header
 	headers, err := reader.Read()
 	if err != nil {
 		return nil, fmt.Errorf("error reading CSV header: %w", err)
@@ -445,7 +461,6 @@ func processCSV(csvData []byte) ([]CSVRecord, error) {
 
 	var records []CSVRecord
 
-	// Read all rows
 	for {
 		row, err := reader.Read()
 		if err == io.EOF {
