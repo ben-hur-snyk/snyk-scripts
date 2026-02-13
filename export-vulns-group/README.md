@@ -129,6 +129,8 @@ All outputs are written to the folder given by `--output-folder` (default: `./re
 - One **Rich table per issue status** showing the same summary data as `summary-{status}.csv` (org name and Critical/High/Medium/Low counts).
 - A final **summary** with total row count, number of CSV files downloaded, and the output folder path.
 
+![Sample Results](docs/sample-results.png)
+
 ### Finding your Group ID
 
 In the Snyk UI, open your **Group** settings. The Group ID is in the URL (e.g. `https://app.snyk.io/group/<group-id>`) or on the group settings page.
