@@ -1,15 +1,17 @@
 # Snyk Export Vulnerabilities from Group
 
-Export vulnerabilities from a Snyk group for a date range using the Snyk Export API. Results are saved as JSON and CSV files.
+Export vulnerabilities from a Snyk group for a date range using the [Snyk Export API](https://api.snyk.io). The script starts an export job, waits for completion, downloads CSV data, and generates per-organization severity summaries by issue status. Results are saved as JSON, CSV, and daily log files.
 
 ## Prerequisites
 
 - **Python 3** (3.8+)
 - **Snyk API token** with access to the group you want to export from
 
+---
+
 ## Setup
 
-### 1. Clone or navigate to the project
+### 1. Go to the project directory
 
 ```bash
 cd export-vulns-group
@@ -28,17 +30,18 @@ source .venv/bin/activate   # On Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+
 ### 4. Set your Snyk API token
 
-The script requires `SNYK_TOKEN` as an environment variable.
+The script requires `SNYK_TOKEN` to call the Snyk API.
 
-**Option A – export for the current shell:**
+**Option A – current shell:**
 
 ```bash
 export SNYK_TOKEN="your-snyk-api-token"
 ```
 
-**Option B – use a `.env` file (loaded automatically):**
+**Option B – `.env` file (recommended):**
 
 Create a `.env` file in the project directory:
 
@@ -46,9 +49,11 @@ Create a `.env` file in the project directory:
 SNYK_TOKEN=your-snyk-api-token
 ```
 
-Do not commit `.env` or your token to version control.
+The script loads `.env` automatically via `python-dotenv`. Do not commit `.env` or your token to version control.
 
-## Running the script
+---
+
+## Run
 
 ### Required arguments
 
@@ -60,11 +65,11 @@ Do not commit `.env` or your token to version control.
 
 ### Optional arguments
 
-| Argument          | Default                | Description                    |
-|-------------------|------------------------|--------------------------------|
-| `--output-folder` | `./results`            | Directory for output files    |
-| `--api-url`       | `https://api.snyk.io`  | Snyk API base URL             |
-| `--api-version`   | `2024-10-15`           | API version                   |
+| Argument          | Default                | Description                                                                 |
+|-------------------|------------------------|-----------------------------------------------------------------------------|
+| `--output-folder` | `./results`            | Directory for all output files (created if missing; cleared at each run)   |
+| `--api-url`       | `https://api.snyk.io`  | Snyk API base URL                                                          |
+| `--api-version`   | `2024-10-15`           | Export API version                                                         |
 
 ### Example
 
@@ -72,18 +77,17 @@ Do not commit `.env` or your token to version control.
 python3 snyk-export-vulns-group.py \
   --group-id=your-group-id \
   --date-from=2025-01-01 \
-  --date-to=2025-01-31 \
-  --output-folder=./results
+  --date-to=2025-01-31
 ```
 
-With custom API URL and version:
+With a custom output folder and API options:
 
 ```bash
 python3 snyk-export-vulns-group.py \
   --group-id=your-group-id \
   --date-from=2025-01-01 \
   --date-to=2025-01-31 \
-  --output-folder=./results \
+  --output-folder=./my-export \
   --api-url=https://api.snyk.io \
   --api-version=2024-10-15
 ```
@@ -94,32 +98,53 @@ python3 snyk-export-vulns-group.py \
 python3 snyk-export-vulns-group.py --help
 ```
 
-## Output
+### What the script does when you run it
 
-All files are written to the folder given by `--output-folder` (default: `./results`):
+1. **Validates** `SNYK_TOKEN`, `--group-id`, and date arguments (format `YYYY-MM-DD`, and that `--date-from` ≤ `--date-to`).
+2. **Clears** the output folder (deletes existing files from a previous run).
+3. **Starts** an export job via the Snyk Export API for the given group and date range (issues *introduced* in that range).
+4. **Polls** the job status every second until it is `FINISHED`.
+5. **Saves** the full API response as `result.json` in the output folder.
+6. **Downloads** each CSV from the export result URLs as `csv_1.csv`, `csv_2.csv`, … into the output folder.
+7. **Generates** a results review: for each distinct `ISSUE_STATUS`, creates `summary-{status}.csv` (e.g. `summary-Open.csv`, `summary-Resolved.csv`) with vulnerability counts by organization and severity (Critical, High, Medium, Low), then prints one Rich table per status to the console.
 
-| File           | Description                                      |
-|----------------|--------------------------------------------------|
-| `result.json`  | Full API response (export metadata and result URLs) |
-| `csv_1.csv`, `csv_2.csv`, … | Exported vulnerability data (one file per result chunk) |
-| `YYYYMMDD.log` | Log file for the run (date of execution)         |
+---
 
-The script will create the output directory if it does not exist.
+## Results
 
-## Finding your Group ID
+All outputs are written to the folder given by `--output-folder` (default: `./results`). The script creates this folder if it does not exist and **clears it at the start of each run**.
 
-In the Snyk UI: open your **Group** settings. The Group ID appears in the URL or in the group settings page (e.g. `https://app.snyk.io/group/<group-id>`).
+### Files produced
+
+| File                     | Description                                                                                                                                 |
+|--------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
+| `result.json`            | Full API response for the completed export job: metadata, status, and list of result URLs with `url`, `file_size`, and `row_count`.        |
+| `csv_1.csv`, `csv_2.csv`, … | Raw export data from the Snyk Export API. One file per chunk; columns include `GROUP_PUBLIC_ID`, `ORG_DISPLAY_NAME`, `ISSUE_SEVERITY`, `ISSUE_STATUS`, `PROBLEM_TITLE`, `CVE`, `CWE`, `PROJECT_NAME`, `FIRST_INTRODUCED`, etc. |
+| `summary-{status}.csv`   | One file per `ISSUE_STATUS` (e.g. `summary-Open.csv`, `summary-Resolved.csv`). Columns: `ORG_DISPLAY_NAME`, `CRITICAL`, `HIGH`, `MEDIUM`, `LOW` — counts of issues by org and severity for that status. |
+| `YYYYMMDD.log`           | Daily log file (date of the run). All steps and errors are logged here for debugging.                                                     |
+
+### Console output
+
+- Progress messages and checkmarks for each step (clear folder, start export, wait, save JSON, download CSVs, generate review).
+- One **Rich table per issue status** showing the same summary data as `summary-{status}.csv` (org name and Critical/High/Medium/Low counts).
+- A final **summary** with total row count, number of CSV files downloaded, and the output folder path.
+
+### Finding your Group ID
+
+In the Snyk UI, open your **Group** settings. The Group ID is in the URL (e.g. `https://app.snyk.io/group/<group-id>`) or on the group settings page.
+
+---
 
 ## Troubleshooting
 
 - **`SNYK_TOKEN environment variable is not set`**  
-  Set `SNYK_TOKEN` (see [Set your Snyk API token](#4-set-your-snyk-api-token)) or ensure your `.env` is in the script’s working directory.
+  Set `SNYK_TOKEN` (see [Set your Snyk API token](#4-set-your-snyk-api-token)) or ensure your `.env` file is in the script’s working directory.
 
 - **`--date-from` / `--date-to` must be in YYYY-MM-DD format**  
-  Use dates like `2025-01-01`. The script validates that the values are valid calendar dates.
+  Use dates like `2025-01-01`. The script checks that they are valid calendar dates and that `--date-from` is not after `--date-to`.
 
 - **HTTP 401 / 403**  
-  Check that your token is valid and has access to the given group.
+  Confirm your token is valid and has access to the given group.
 
 - **Export never finishes**  
-  Large date ranges or groups can take longer. The script polls every second; check the log file in the output folder for details.
+  Large date ranges or groups can take longer. The script polls every second; check the `YYYYMMDD.log` file in the output folder for details.

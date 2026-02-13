@@ -156,6 +156,27 @@ In the response we have this structure:
 For each URL in results, download the csv and save it as csv_$num.csv (where the $num is an incremental counter).
 
 
+#### Generate Results Review
+
+
+Read all the CSVs in the output folder.
+
+The CSV has this format:
+
+```
+"SCORE","CVE","CWE","FIRST_INTRODUCED","PROJECT_NAME","PROJECT_URL","GROUP_PUBLIC_ID","ORG_PUBLIC_ID","PRODUCT_NAME","ORG_DISPLAY_NAME","ISSUE_SEVERITY","PROBLEM_TITLE","ISSUE_URL","ISSUE_STATUS","GROUP_SLUG"
+110,"[""CVE-2025-65945""]","[""CWE-347""]","2025-12-05 21:14:01.949","juice-shop","https://app.snyk.io/org/ben-hur.ottsnyk.io/project/240148ae-8c9a-424f-8b3e-402921423cc7","a1cbf11b-aa99-4434-b4e7-1bb47fc86db1","65523c0b-3a89-4f55-a819-11c497a7c0d3","Snyk Open Source","default-org","High","Improper Verification of Cryptographic Signature","https://app.snyk.io/org/ben-hur.ottsnyk.io/project/240148ae-8c9a-424f-8b3e-402921423cc7#issue-SNYK-JS-JWS-14188253","Open","ben-demo-group-Wns7Y4dN3sPrHJCJ86Zpm4"
+
+```
+
+For each ISSUE_STATUS, an csv should be generated with the name "summary-$ISSUE_STATUS.csv"
+
+This csv should contain these columns: ORG_DISPLAY_NAME, CRITICAL, HIGH, MEDIUM, LOW
+
+Group all the results by org and count every issue by severity.
+
+At the end, display the results in a table. One table per status.
+
 
 ## Technical Requirements
 

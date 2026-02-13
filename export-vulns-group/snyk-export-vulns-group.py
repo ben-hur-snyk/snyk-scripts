@@ -5,6 +5,7 @@ Snyk Export Vulnerabilities from Group
 This script exports all vulnerabilities from the Snyk Export API for a given group,
 saves the results as JSON and CSV files.
 """
+import csv
 import shutil
 import os
 import sys
@@ -12,6 +13,8 @@ import json
 import logging
 import argparse
 import re
+import subprocess
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -19,6 +22,7 @@ from typing import Optional
 import requests
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.table import Table
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -70,6 +74,11 @@ class Config:
             "--api-version",
             default="2024-10-15",
             help="Snyk API version (default: 2024-10-15)"
+        )
+        parser.add_argument(
+            "--web-ui",
+            action="store_true",
+            help="At the end, run a Streamlit page to view vulnerability charts by org and severity"
         )
 
         args = parser.parse_args()
@@ -207,7 +216,9 @@ def start_export(config: Config, logger: logging.Logger) -> str:
             "attributes": {
                 "columns": [
                     "GROUP_PUBLIC_ID",
+                    "GROUP_SLUG",
                     "ORG_PUBLIC_ID",
+                    "ORG_DISPLAY_NAME",
                     "ISSUE_SEVERITY_RANK",
                     "ISSUE_SEVERITY",
                     "SCORE",
@@ -412,6 +423,126 @@ def save_json_result(data: dict, output_folder: str, logger: logging.Logger) -> 
         raise
 
 
+def _safe_filename(status: str) -> str:
+    """Return a filesystem-safe name for ISSUE_STATUS (e.g. for summary-{status}.csv)."""
+    return re.sub(r'[<>:"/\\|?*]', "_", status).strip() or "Unknown"
+
+
+def generate_results_review(output_folder: str, logger: logging.Logger) -> dict[str, list[dict]]:
+    """
+    Read all csv_*.csv files in the output folder, aggregate by org and severity
+    per ISSUE_STATUS, write summary-{ISSUE_STATUS}.csv for each status, and return
+    summary rows per status for display.
+    """
+    output_path = Path(output_folder)
+    # Group by status -> org -> severity -> count
+    by_status: dict[str, dict[str, dict[str, int]]] = defaultdict(
+        lambda: defaultdict(lambda: {"Critical": 0, "High": 0, "Medium": 0, "Low": 0})
+    )
+
+    csv_files = sorted(output_path.glob("csv_*.csv"))
+    if not csv_files:
+        logger.warning("No csv_*.csv files found in output folder; skipping results review")
+        return {}
+
+    logger.info(f"Generating results review from {len(csv_files)} CSV file(s)")
+
+    for csv_file in csv_files:
+        try:
+            with open(csv_file, "r", encoding="utf-8", newline="") as f:
+                reader = csv.DictReader(f)
+                fields = reader.fieldnames or []
+                if "ORG_DISPLAY_NAME" not in fields:
+                    logger.warning(f"{csv_file.name}: missing ORG_DISPLAY_NAME column, skipping")
+                    continue
+                if "ISSUE_SEVERITY" not in fields:
+                    logger.warning(f"{csv_file.name}: missing ISSUE_SEVERITY column, skipping")
+                    continue
+                has_status = "ISSUE_STATUS" in fields
+                if not has_status:
+                    logger.warning(f"{csv_file.name}: missing ISSUE_STATUS column, using 'Unknown'")
+                for row in reader:
+                    org = (row.get("ORG_DISPLAY_NAME") or "").strip()
+                    severity = (row.get("ISSUE_SEVERITY") or "").strip()
+                    status = (row.get("ISSUE_STATUS") or "Unknown").strip() if has_status else "Unknown"
+                    if not org:
+                        continue
+                    severity_lower = severity.lower()
+                    for key in ("Critical", "High", "Medium", "Low"):
+                        if key.lower() == severity_lower:
+                            by_status[status][org][key] += 1
+                            break
+        except (IOError, csv.Error) as e:
+            logger.warning(f"Error reading {csv_file}: {e}")
+
+    summary_by_status: dict[str, list[dict]] = {}
+    fieldnames = ["ORG_DISPLAY_NAME", "CRITICAL", "HIGH", "MEDIUM", "LOW"]
+
+    for status in sorted(by_status.keys()):
+        by_org = by_status[status]
+        summary_rows = []
+        for org in sorted(by_org.keys()):
+            counts = by_org[org]
+            summary_rows.append({
+                "ORG_DISPLAY_NAME": org,
+                "CRITICAL": counts["Critical"],
+                "HIGH": counts["High"],
+                "MEDIUM": counts["Medium"],
+                "LOW": counts["Low"],
+            })
+        summary_by_status[status] = summary_rows
+
+        summary_filename = f"summary-{_safe_filename(status)}.csv"
+        summary_path = output_path / summary_filename
+        try:
+            with open(summary_path, "w", encoding="utf-8", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames, quoting=csv.QUOTE_MINIMAL)
+                writer.writeheader()
+                writer.writerows(summary_rows)
+            logger.info(f"Saved results review to {summary_path}")
+        except IOError as e:
+            logger.error(f"Error writing {summary_filename}: {e}")
+            raise
+
+    return summary_by_status
+
+
+def display_results_review_table(summary_by_status: dict[str, list[dict]]) -> None:
+    """Display the results review summary in one Rich table per ISSUE_STATUS."""
+    if not summary_by_status:
+        console.print("[yellow]No summary data to display.[/yellow]")
+        return
+
+    for status in sorted(summary_by_status.keys()):
+        summary_rows = summary_by_status[status]
+        if not summary_rows:
+            continue
+        table = Table(
+            title=f"Results Review — Status: {status}",
+            show_header=True,
+            header_style="bold cyan",
+            border_style="blue",
+        )
+        table.add_column("ORG_DISPLAY_NAME", style="white")
+        table.add_column("CRITICAL", justify="right", style="red")
+        table.add_column("HIGH", justify="right", style="orange3")
+        table.add_column("MEDIUM", justify="right", style="yellow")
+        table.add_column("LOW", justify="right", style="grey78")
+
+        for row in summary_rows:
+            table.add_row(
+                row["ORG_DISPLAY_NAME"],
+                str(row["CRITICAL"]),
+                str(row["HIGH"]),
+                str(row["MEDIUM"]),
+                str(row["LOW"]),
+            )
+
+        console.print()
+        console.print(table)
+    console.print()
+
+
 def main() -> int:
     """Main entry point for the script."""
     # Load and validate configuration
@@ -488,6 +619,13 @@ def main() -> int:
         step += 1
         downloaded = download_csv_files(results, config.OUTPUT_FOLDER, logger)
         console.print(f"[green]✓[/green] Downloaded {downloaded} CSV file(s)\n")
+
+        # Step 5: Generate results review (summary-{status}.csv + one table per status)
+        console.print(f"[bold yellow]Step {step}:[/bold yellow] Generating results review...")
+        step += 1
+        summary_by_status = generate_results_review(config.OUTPUT_FOLDER, logger)
+        num_summaries = len(summary_by_status)
+        console.print(f"[green]✓[/green] Saved {num_summaries} summary CSV(s) (summary-{{status}}.csv)\n")
         
         # Print summary
         console.print("[bold blue]═══════════════════════════════════════════════════════════[/bold blue]")
@@ -503,6 +641,8 @@ def main() -> int:
         logger.info(f"Total rows: {total_rows}")
         logger.info(f"CSV files downloaded: {downloaded}")
         logger.info("=" * 60)
+
+        display_results_review_table(summary_by_status)
         
         return 0
         
