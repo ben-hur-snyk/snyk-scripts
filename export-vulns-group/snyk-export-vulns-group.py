@@ -35,6 +35,7 @@ class Config:
         self.GROUP_ID: str = ""
         self.DATE_FROM: str = ""
         self.DATE_TO: str = ""
+        self.ORG_IDS: list[str] = []
         self.OUTPUT_FOLDER: str = "./results"
         self.API_URL: str = "https://api.snyk.io"
         self.API_VERSION: str = "2024-10-15"
@@ -59,6 +60,11 @@ class Config:
             "--date-to",
             required=True,
             help="End date in YYYY-MM-DD format (required)"
+        )
+        parser.add_argument(
+            "--org-ids",
+            default="",
+            help="Optional comma-separated list of org IDs to filter the export (default: empty, export all orgs in group)"
         )
         parser.add_argument(
             "--output-folder",
@@ -86,6 +92,8 @@ class Config:
         self.GROUP_ID = args.group_id
         self.DATE_FROM = args.date_from
         self.DATE_TO = args.date_to
+        org_ids_str = args.org_ids or ""
+        self.ORG_IDS = [oid.strip() for oid in org_ids_str.split(",") if oid.strip()]
         self.OUTPUT_FOLDER = args.output_folder
         self.API_URL = args.api_url
         self.API_VERSION = args.api_version
@@ -211,6 +219,15 @@ def start_export(config: Config, logger: logging.Logger) -> str:
     """
     url = f"{config.API_URL}/rest/groups/{config.GROUP_ID}/export?version={config.API_VERSION}"
     
+    filters: dict = {
+        "introduced": {
+            "from": config.get_date_from_iso(),
+            "to": config.get_date_to_iso()
+        }
+    }
+    if config.ORG_IDS:
+        filters["orgs"] = config.ORG_IDS
+
     payload = {
         "data": {
             "attributes": {
@@ -233,12 +250,7 @@ def start_export(config: Config, logger: logging.Logger) -> str:
                     "ISSUE_STATUS"
                 ],
                 "dataset": "issues",
-                "filters": {
-                    "introduced": {
-                        "from": config.get_date_from_iso(),
-                        "to": config.get_date_to_iso()
-                    }
-                },
+                "filters": filters,
                 "formats": ["csv"],
                 "url_expiration_seconds": 3600
             },
@@ -249,6 +261,8 @@ def start_export(config: Config, logger: logging.Logger) -> str:
     logger.info(f"Starting export job for group {config.GROUP_ID}")
     logger.debug(f"Export URL: {url}")
     logger.debug(f"Date range: {config.get_date_from_iso()} to {config.get_date_to_iso()}")
+    if config.ORG_IDS:
+        logger.debug(f"Filtering by orgs: {config.ORG_IDS}")
 
     try:
         response = requests.post(
@@ -602,6 +616,8 @@ def main() -> int:
     
     console.print(f"[bold]Group ID:[/bold] [cyan]{config.GROUP_ID}[/cyan]")
     console.print(f"[bold]Date Range:[/bold] [cyan]{config.DATE_FROM}[/cyan] to [cyan]{config.DATE_TO}[/cyan]")
+    if config.ORG_IDS:
+        console.print(f"[bold]Org IDs filter:[/bold] [cyan]{', '.join(config.ORG_IDS)}[/cyan]")
     console.print(f"[bold]Output Folder:[/bold] [cyan]{config.OUTPUT_FOLDER}[/cyan]")
     console.print(f"[bold]API URL:[/bold] [cyan]{config.API_URL}[/cyan]")
     console.print()
@@ -611,6 +627,8 @@ def main() -> int:
     logger.info("=" * 60)
     logger.info(f"Group ID: {config.GROUP_ID}")
     logger.info(f"Date Range: {config.DATE_FROM} to {config.DATE_TO}")
+    if config.ORG_IDS:
+        logger.info(f"Org IDs filter: {config.ORG_IDS}")
     logger.info(f"Output Folder: {config.OUTPUT_FOLDER}")
     logger.info(f"API URL: {config.API_URL}")
     logger.info(f"API Version: {config.API_VERSION}")

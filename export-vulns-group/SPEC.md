@@ -14,7 +14,7 @@ Follow the specification:
 To run the script, it should execute:
 
 ```
-python3 snyk-export-vulns-grpup.py --group-id=<the group id> --date-from=YYYY-MM-DD --date-to=YYYY-MM-DD --output-folder=./results --api-url=https://api.snyk.io --api-version=2024-10-15
+python3 snyk-export-vulns-grpup.py --group-id=<the group id> --date-from=YYYY-MM-DD --date-to=YYYY-MM-DD --org-ids=<org-ids> --output-folder=./results --api-url=https://api.snyk.io --api-version=2024-10-15
 ```
 
 It should require a SNYK_TOKEN as environment variable.
@@ -22,6 +22,7 @@ It should require a SNYK_TOKEN as environment variable.
 The --group-id is required
 The --date-from is required
 The --date-to is required
+The --org-ids is optional, it's an array of ids separated by comma ",", default empty
 The --output-folder is optional, defaults to ./results
 The --api-url is optional, default to https://api.snyk.io
 The --api-version is optional, defaults to 2024-10-15
@@ -64,7 +65,11 @@ curl --request POST \
         "introduced": {
           "from": "$DATE_FROM",
           "to": "$DATE_TO"
-        }
+        },
+        "orgs": [
+          "$ORG_ID_01",
+          "$ORG_ID_02"
+        ],
       },
       "formats": [
         "csv"
@@ -81,6 +86,7 @@ The $GROUP_ID should come from --group-id
 The $SNYK_TOKEN should come from env vars
 The $DATE_FROM should come from the --date-from, but be in this format: 2026-01-01T00:00:00Z (with time 0)
 The $DATE_TO should come from the --date-to, but be in this format: 2026-01-31T23:59:59Z (with last time of the day)
+The filters.orgs is optional, only present if the --org-ids has values, if not, should not be added in the payload.
 
 The response of this API is in this format:
 

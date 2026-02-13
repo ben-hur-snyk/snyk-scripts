@@ -67,6 +67,7 @@ The script loads `.env` automatically via `python-dotenv`. Do not commit `.env` 
 
 | Argument          | Default                | Description                                                                 |
 |-------------------|------------------------|-----------------------------------------------------------------------------|
+| `--org-ids`       | *(none)*               | Comma-separated list of org IDs to limit the export to specific orgs in the group. If omitted, all orgs in the group are included. |
 | `--output-folder` | `./results`            | Directory for all output files (created if missing; cleared at each run)   |
 | `--api-url`       | `https://api.snyk.io`  | Snyk API base URL                                                          |
 | `--api-version`   | `2024-10-15`           | Export API version                                                         |
@@ -80,13 +81,14 @@ python3 snyk-export-vulns-group.py \
   --date-to=2025-01-31
 ```
 
-With a custom output folder and API options:
+With org filter, custom output folder, and API options:
 
 ```bash
 python3 snyk-export-vulns-group.py \
   --group-id=your-group-id \
   --date-from=2025-01-01 \
   --date-to=2025-01-31 \
+  --org-ids=org-id-1,org-id-2 \
   --output-folder=./my-export \
   --api-url=https://api.snyk.io \
   --api-version=2024-10-15
