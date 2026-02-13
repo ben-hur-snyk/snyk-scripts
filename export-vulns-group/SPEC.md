@@ -119,6 +119,8 @@ We need to check if in the response if:
 1. The request is successfull (status code 200)
 2. The result body json has this property value: $.data.attributes.status == "FINISHED"
 
+If the status returns "ERROR", show an error message and exit the program.
+
 If yes, we can look to the same response to start save the results.
 
 

@@ -300,6 +300,12 @@ def check_export_status(config: Config, export_id: str, logger: logging.Logger) 
         
         logger.debug(f"Export job status: {status}")
         
+        if status == "ERRORED":
+            attrs = data.get("data", {}).get("attributes", {})
+            logger.error(f"Export job failed: {export_id}")
+            console.print(f"[bold red]Export Error:[/bold red] {export_id}")
+            sys.exit(1)
+        
         if status == "FINISHED":
             return data
         
