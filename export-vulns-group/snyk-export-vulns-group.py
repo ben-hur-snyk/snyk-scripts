@@ -436,15 +436,20 @@ def _safe_filename(status: str) -> str:
 
 def generate_results_review(output_folder: str, logger: logging.Logger) -> dict[str, list[dict]]:
     """
-    Read all csv_*.csv files in the output folder, aggregate by org and severity
-    per ISSUE_STATUS, write summary-{ISSUE_STATUS}.csv for each status, and return
-    summary rows per status for display.
+    Read all csv_*.csv files in the output folder; for each ISSUE_STATUS write
+    issues-{ISSUE_STATUS}.csv with all issues of that status, then write
+    summary-{ISSUE_STATUS}.csv (ORG_DISPLAY_NAME, CRITICAL, HIGH, MEDIUM, LOW)
+    grouped by org with severity counts. Return summary rows per status for display.
     """
     output_path = Path(output_folder)
-    # Group by status -> org -> severity -> count
+    # Rows per status (full row dicts for issues-*.csv)
+    rows_by_status: dict[str, list[dict]] = defaultdict(list)
+    # Counts per status -> org -> severity for summary-*.csv
     by_status: dict[str, dict[str, dict[str, int]]] = defaultdict(
         lambda: defaultdict(lambda: {"Critical": 0, "High": 0, "Medium": 0, "Low": 0})
     )
+    # Use first file's fieldnames for issues CSV output
+    issues_fieldnames: Optional[list[str]] = None
 
     csv_files = sorted(output_path.glob("csv_*.csv"))
     if not csv_files:
@@ -458,6 +463,8 @@ def generate_results_review(output_folder: str, logger: logging.Logger) -> dict[
             with open(csv_file, "r", encoding="utf-8", newline="") as f:
                 reader = csv.DictReader(f)
                 fields = reader.fieldnames or []
+                if issues_fieldnames is None and fields:
+                    issues_fieldnames = list(fields)
                 if "ORG_DISPLAY_NAME" not in fields:
                     logger.warning(f"{csv_file.name}: missing ORG_DISPLAY_NAME column, skipping")
                     continue
@@ -471,6 +478,7 @@ def generate_results_review(output_folder: str, logger: logging.Logger) -> dict[
                     org = (row.get("ORG_DISPLAY_NAME") or "").strip()
                     severity = (row.get("ISSUE_SEVERITY") or "").strip()
                     status = (row.get("ISSUE_STATUS") or "Unknown").strip() if has_status else "Unknown"
+                    rows_by_status[status].append(row)
                     if not org:
                         continue
                     severity_lower = severity.lower()
@@ -481,11 +489,32 @@ def generate_results_review(output_folder: str, logger: logging.Logger) -> dict[
         except (IOError, csv.Error) as e:
             logger.warning(f"Error reading {csv_file}: {e}")
 
-    summary_by_status: dict[str, list[dict]] = {}
-    fieldnames = ["ORG_DISPLAY_NAME", "CRITICAL", "HIGH", "MEDIUM", "LOW"]
+    if not issues_fieldnames:
+        logger.warning("No CSV fieldnames found; skipping issues and summary files")
+        return {}
 
-    for status in sorted(by_status.keys()):
-        by_org = by_status[status]
+    summary_by_status: dict[str, list[dict]] = {}
+    summary_fieldnames = ["ORG_DISPLAY_NAME", "CRITICAL", "HIGH", "MEDIUM", "LOW"]
+
+    for status in sorted(rows_by_status.keys()):
+        safe_status = _safe_filename(status)
+        # 1. Write issues-{ISSUE_STATUS}.csv with all issues of that status
+        issues_filename = f"issues-{safe_status}.csv"
+        issues_path = output_path / issues_filename
+        try:
+            with open(issues_path, "w", encoding="utf-8", newline="") as f:
+                writer = csv.DictWriter(
+                    f, fieldnames=issues_fieldnames, quoting=csv.QUOTE_MINIMAL, extrasaction="ignore"
+                )
+                writer.writeheader()
+                writer.writerows(rows_by_status[status])
+            logger.info(f"Saved {issues_filename} with {len(rows_by_status[status])} issue(s)")
+        except IOError as e:
+            logger.error(f"Error writing {issues_filename}: {e}")
+            raise
+
+        # 2. Build and write summary-{ISSUE_STATUS}.csv (by org, severity counts)
+        by_org = by_status.get(status, {})
         summary_rows = []
         for org in sorted(by_org.keys()):
             counts = by_org[org]
@@ -498,14 +527,16 @@ def generate_results_review(output_folder: str, logger: logging.Logger) -> dict[
             })
         summary_by_status[status] = summary_rows
 
-        summary_filename = f"summary-{_safe_filename(status)}.csv"
+        summary_filename = f"summary-{safe_status}.csv"
         summary_path = output_path / summary_filename
         try:
             with open(summary_path, "w", encoding="utf-8", newline="") as f:
-                writer = csv.DictWriter(f, fieldnames=fieldnames, quoting=csv.QUOTE_MINIMAL)
+                writer = csv.DictWriter(
+                    f, fieldnames=summary_fieldnames, quoting=csv.QUOTE_MINIMAL
+                )
                 writer.writeheader()
                 writer.writerows(summary_rows)
-            logger.info(f"Saved results review to {summary_path}")
+            logger.info(f"Saved {summary_filename}")
         except IOError as e:
             logger.error(f"Error writing {summary_filename}: {e}")
             raise
@@ -630,8 +661,8 @@ def main() -> int:
         console.print(f"[bold yellow]Step {step}:[/bold yellow] Generating results review...")
         step += 1
         summary_by_status = generate_results_review(config.OUTPUT_FOLDER, logger)
-        num_summaries = len(summary_by_status)
-        console.print(f"[green]✓[/green] Saved {num_summaries} summary CSV(s) (summary-{{status}}.csv)\n")
+        num_statuses = len(summary_by_status)
+        console.print(f"[green]✓[/green] Saved {num_statuses} status set(s) (issues-{{status}}.csv + summary-{{status}}.csv)\n")
         
         # Print summary
         console.print("[bold blue]═══════════════════════════════════════════════════════════[/bold blue]")

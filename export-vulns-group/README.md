@@ -1,6 +1,6 @@
 # Snyk Export Vulnerabilities from Group
 
-Export vulnerabilities from a Snyk group for a date range using the [Snyk Export API](https://api.snyk.io). The script starts an export job, waits for completion, downloads CSV data, and generates per-organization severity summaries by issue status. Results are saved as JSON, CSV, and daily log files.
+Export vulnerabilities from a Snyk group for a date range using the [Snyk Export API](https://api.snyk.io). The script starts an export job, waits for completion, downloads CSV data, and for each issue status generates an **issues** CSV (all issues of that status) and a **summary** CSV (counts by org and severity). Results are saved as JSON, CSV, and daily log files.
 
 ## Prerequisites
 
@@ -106,7 +106,10 @@ python3 snyk-export-vulns-group.py --help
 4. **Polls** the job status every second until it is `FINISHED`.
 5. **Saves** the full API response as `result.json` in the output folder.
 6. **Downloads** each CSV from the export result URLs as `csv_1.csv`, `csv_2.csv`, … into the output folder.
-7. **Generates** a results review: for each distinct `ISSUE_STATUS`, creates `summary-{status}.csv` (e.g. `summary-Open.csv`, `summary-Resolved.csv`) with vulnerability counts by organization and severity (Critical, High, Medium, Low), then prints one Rich table per status to the console.
+7. **Generates a results review** (per `ISSUE_STATUS`):
+   - **Issues:** For each distinct `ISSUE_STATUS`, creates `issues-{status}.csv` (e.g. `issues-Open.csv`, `issues-Resolved.csv`) containing all issues of that status, with the same columns as the raw export (SCORE, CVE, CWE, PROJECT_NAME, ORG_DISPLAY_NAME, ISSUE_SEVERITY, ISSUE_STATUS, etc.).
+   - **Summary:** For each status, creates `summary-{status}.csv` with columns `ORG_DISPLAY_NAME`, `CRITICAL`, `HIGH`, `MEDIUM`, `LOW` — counts of issues by organization and severity for that status.
+   - **Console:** Prints one Rich table per status showing the summary data.
 
 ---
 
@@ -120,12 +123,13 @@ All outputs are written to the folder given by `--output-folder` (default: `./re
 |--------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
 | `result.json`            | Full API response for the completed export job: metadata, status, and list of result URLs with `url`, `file_size`, and `row_count`.        |
 | `csv_1.csv`, `csv_2.csv`, … | Raw export data from the Snyk Export API. One file per chunk; columns include `GROUP_PUBLIC_ID`, `ORG_DISPLAY_NAME`, `ISSUE_SEVERITY`, `ISSUE_STATUS`, `PROBLEM_TITLE`, `CVE`, `CWE`, `PROJECT_NAME`, `FIRST_INTRODUCED`, etc. |
+| `issues-{status}.csv`    | One file per `ISSUE_STATUS` (e.g. `issues-Open.csv`, `issues-Resolved.csv`). All issues of that status with the same columns as the raw export. Use these to filter or analyze by status. |
 | `summary-{status}.csv`   | One file per `ISSUE_STATUS` (e.g. `summary-Open.csv`, `summary-Resolved.csv`). Columns: `ORG_DISPLAY_NAME`, `CRITICAL`, `HIGH`, `MEDIUM`, `LOW` — counts of issues by org and severity for that status. |
 | `YYYYMMDD.log`           | Daily log file (date of the run). All steps and errors are logged here for debugging.                                                     |
 
 ### Console output
 
-- Progress messages and checkmarks for each step (clear folder, start export, wait, save JSON, download CSVs, generate review).
+- Progress messages and checkmarks for each step (clear folder, start export, wait, save JSON, download CSVs, generate issues and summary CSVs per status).
 - One **Rich table per issue status** showing the same summary data as `summary-{status}.csv` (org name and Critical/High/Medium/Low counts).
 - A final **summary** with total row count, number of CSV files downloaded, and the output folder path.
 

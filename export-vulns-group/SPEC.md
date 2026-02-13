@@ -171,13 +171,15 @@ The CSV has this format:
 
 ```
 
-For each ISSUE_STATUS, an csv should be generated with the name "summary-$ISSUE_STATUS.csv"
+Issues:
+- For each ISSUE_STATUS, generate a csv with the name "issues-$ISSUE_STATUS.csv" and add all the issues of that status in the CSV.
 
-This csv should contain these columns: ORG_DISPLAY_NAME, CRITICAL, HIGH, MEDIUM, LOW
+Summary:
+- For each issues file generated in the previous step, generate a csv with the name "summary-$ISSUE_STATUS.csv"
+- This csv should contain these columns: ORG_DISPLAY_NAME, CRITICAL, HIGH, MEDIUM, LOW
+- Group all the results by org and count every issue by severity.
+- At the end, display the results in a table. One table per status.
 
-Group all the results by org and count every issue by severity.
-
-At the end, display the results in a table. One table per status.
 
 
 ## Technical Requirements
